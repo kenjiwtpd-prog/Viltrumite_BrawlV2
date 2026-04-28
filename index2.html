@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>VILTRUMITE BRAWL V7 Ultimate</title>
+  <style>
+    html,body {margin:0;overflow:hidden;background:#181428;}
+    #gameCanvas {display:block;margin:0 auto;background:#171717;}
+    #ui {position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:3;color:white;font:20px monospace}
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="960" height="540"></canvas>
+  <div id="ui"></div>
+<script>
+// == ULTIMATE CANVAS BRAWL: ONEFILE PLAYABLE ==
+
+// STATS & STATES
+const S={IDLE:0,WALK:1,JUMP:2,PUNCH:3,KICK:4,GRAB:5,HIT:6,DOWN:7,DEAD:8,BLOCK:9,ULTCHARGE:10,ULTHIT:11,ULTFINISH:12};
+const ATK={
+ p1:{punch:{sp:6,ac:3,rc:8,dmg:8,kx:11,ky:-6},kick:{sp:8,ac:6,rc:10,dmg:12,kx:14,ky:-9},ultCharge:{sp:12,ac:0,rc:30,dmg:0},ultHit:{sp:8,ac:6,rc:20,dmg:35,kx:25,ky:-25,unblockable:!0}},
+ thragg:{punch:{sp:5,ac:3,rc:6,dmg:12,kx:15,ky:-8},ultCharge:{sp:11,ac:0,rc:25,dmg:0},ultHit:{sp:7,ac:6,rc:18,dmg:45,kx:30,ky:-30,unblockable:!0}}
+};
+// WINZIGE DUMMY-ASSETS (ersetzen!): 1px-PNG transparent als Demo
+const SPRITEDATA={
+ Mark:{idle:["data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII="],ultCharge:[
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=","","","","",""],ultHit:[
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=",""],ultFinish:[
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII="]},
+ Thragg:{idle:["data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII="],ultCharge:[
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=","","","","",""],ultHit:[
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=",""],ultFinish:[
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII="]}
+};
+const SPRITES={};
+async function preloadSprites(){
+ for(const[char,actions]of Object.entries(SPRITEDATA)){
+  SPRITES[char]={};
+  for(const[state,arr]of Object.entries(actions)){
+   SPRITES[char][state]=[];
+   for(const src of arr){
+    if(!src) {SPRITES[char][state].push(null);continue;}
+    const img=new window.Image();img.src=src;
+    await new Promise(r=>{img.onload=r;});SPRITES[char][state].push(img);
+   }
+  }
+ }
+}
+const canvas=document.getElementById("gameCanvas"),ctx=canvas.getContext("2d"),uiDiv=document.getElementById("ui");
+const FPS=60;
+let fighters=[],keys={},keysPrev={},time=0,shakeTime=0,flash=0,floatTexts=[];
+function spawnFighters(){
+ fighters=[
+  mkFighter("Mark",180,470,1,ATK.p1,true),
+  mkFighter("Thragg",780,470,-1,ATK.thragg)
+ ];
+}
+function mkFighter(name,x,y,dir,ATK,user=false){
+ return{name,x,y,vx:0,vy:0,dir,state:S.IDLE,frame:0,t:0,hp:100,ult:100,ultActive:!1,controlled:user,ATK,combo:0,dead:!1,hitstop:0,grabbable:!0,aiDelay:0};
+}
+function updateFighter(f,i,opp){
+ if(f.ultActive&&(f.state===S.ULTCHARGE||f.state===S.ULTHIT||f.state===S.ULTFINISH))f.grabbable=!1;else f.grabbable=!0;
+ if(f.controlled){
+  if(keys["v"]&&!keysPrev["v"]&&f.ult===100&&!f.ultActive){doUlt(f);}
+  if(f.ultActive&&f.state===S.ULTCHARGE&&keys["v"]&&!keysPrev["v"]&&f.t>=2){f.state=S.ULTHIT;f.t=f.frame=0;}
+ }
+ switch(f.state){
+  case S.ULTCHARGE:
+   if(f.t===0)spawnAura(f);
+   if(f.t>=f.ATK.ultCharge.sp){
+    if(f.t>=f.ATK.ultCharge.sp+f.ATK.ultCharge.rc){
+     if(f.state===S.ULTCHARGE){f.state=S.ULTFINISH;f.t=f.frame=0;}
+    }
+   }break;
+  case S.ULTHIT:
+   if(f.t===0){screenShake(12);spawnHitBurst(f);}
+   if(f.t<f.ATK.ultHit.ac&&f.t%2===0)doUltHitbox(f,opp,i);
+   if(f.t>=f.ATK.ultHit.sp+f.ATK.ultHit.ac+f.ATK.ultHit.rc){f.state=S.ULTFINISH;f.t=f.frame=0;}
+   break;
+  case S.ULTFINISH:
+   if(f.t===0)spawnFloatText("ULTIMATE!",f.x+f.dir*48,f.y-56,"#fff82f");
+   if(f.t>=45){f.ult=0;f.ultActive=!1;f.state=S.IDLE;f.frame=f.t=0;}
+   break;
+  default:break;
+ }
+ f.t++;
+}
+function tryHit(target,dmg,kx,ky,unblk=false){
+ if(target.ultActive&&(target.state===S.ULTCHARGE||target.state===S.ULTHIT||target.state===S.ULTFINISH))return;
+ target.hp=Math.max(0,target.hp-dmg);target.vx+=(kx||0);target.vy+=(ky||0);
+ if(dmg>0)spawnFloatText("-"+dmg,target.x,target.y-48,"#FF3939");
+}
+window.addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=!0;});
+window.addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=!1;});
+function doUlt(f){f.state=S.ULTCHARGE;f.frame=f.t=0;f.ultActive=!0;}
+function doUltHitbox(f,opp,idx){
+ let atk=(f.name==="Thragg")?ATK.thragg.ultHit:ATK.p1.ultHit;
+ tryHit(opp,atk.dmg,atk.kx*f.dir,atk.ky,!0);
+ opp.state=S.HIT;opp.t=0;
+}
+function spawnAura(f){floatTexts.push({txt:"☀",x:f.x,y:f.y-64,col:"#ffe75e",vy:-1,life:24});}
+function screenShake(frames){shakeTime=Math.max(shakeTime,frames);}
+function spawnHitBurst(f){floatTexts.push({txt:"★",x:f.x+f.dir*36,y:f.y-36,col:"#fff",vy:-2,life:20});flash=10;}
+function spawnFloatText(txt,x,y,col="#fff",vy=-1,life=32){floatTexts.push({txt,x,y,col,vy,life});}
+function drawFighter(f){
+ let spr;
+ if(f.state===S.ULTCHARGE)spr=SPRITES[f.name].ultCharge[(f.frame/2|0)%6];
+ else if(f.state===S.ULTHIT)spr=SPRITES[f.name].ultHit[(f.frame/2|0)%2];
+ else if(f.state===S.ULTFINISH)spr=SPRITES[f.name].ultFinish[0];
+ else spr=SPRITES[f.name]["idle"][0];
+ if(spr)ctx.drawImage(spr,f.x-48,f.y-96,96,96);
+}
+function drawUI(f,i){
+ let color=i===0?"#44d782":"#d72943";
+ ctx.fillStyle="#252525";ctx.fillRect(f.x-40,f.y+12,92,10);
+ ctx.fillStyle=f.ultActive?"#ffe75e":color;
+ ctx.fillRect(f.x-40,f.y+12,Math.floor(f.ult*0.92),10);
+ ctx.strokeStyle="#333";ctx.strokeRect(f.x-40,f.y+12,92,10);
+ ctx.fillStyle=color;ctx.fillRect(f.x-40,f.y+26,Math.floor(f.hp*0.92),8);
+}
+function drawFX(){
+ floatTexts.forEach(t=>{ctx.save();ctx.globalAlpha=Math.max(0,t.life/32);ctx.fillStyle=t.col;ctx.font="bold 32px monospace";
+ ctx.fillText(t.txt,t.x,t.y);ctx.restore();t.y+=t.vy;t.life--;});
+ floatTexts=floatTexts.filter(t=>t.life>0);
+}
+function drawFlashAndShake(){
+ if(flash>0){ctx.save();ctx.globalAlpha=0.25;ctx.fillStyle="#fff8a2";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.restore();flash--;}
+ if(shakeTime>0){let dx=(Math.random()-0.5)*12,dy=(Math.random()-0.5)*8;ctx.setTransform(1,0,0,1,dx,dy);shakeTime--;}
+ else ctx.setTransform(1,0,0,1,0,0);
+}
+function gameloop(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ drawFlashAndShake();
+ for(let i=0;i<2;i++){drawFighter(fighters[i]);drawUI(fighters[i],i);updateFighter(fighters[i],i,fighters[1-i]);}
+ drawFX();
+ uiDiv.innerText=`ULT-BAR: [${fighters[0].ult}${fighters[0].ultActive?"/IMMUNE":""}]   Thragg ULT: [${fighters[1].ult}]   STATE: ${Object.keys(S).find(k=>S[k]===fighters[0].state)}`;
+ time++;Object.assign(keysPrev,keys);
+ requestAnimationFrame(gameloop);
+}
+(async()=>{
+ await preloadSprites();
+ spawnFighters();
+ gameloop();
+})();
+</script>
+</body>
+</html>
