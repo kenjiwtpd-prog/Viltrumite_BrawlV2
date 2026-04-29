@@ -1019,7 +1019,36 @@ function drawFighter(f){
 }
 
 // ═══════════════ BACKGROUND ═══════════════
+const BG_LAYERS = { sky: null, buildings: null, foreground: null };
+let bgReady = false, bgLoading = false;
+
+function preloadBackground(){
+  if(bgReady || bgLoading) return;
+  bgLoading = true;
+  fetch('Background_Base64.txt')
+    .then(r => r.text())
+    .then(dataUrl => {
+      const img = new Image();
+      img.onload = () => {
+        BG_LAYERS.sky = img; BG_LAYERS.buildings = img; BG_LAYERS.foreground = img;
+        bgReady = true;
+      };
+      img.onerror = () => { bgLoading = false; };
+      img.src = dataUrl.trim();
+    })
+    .catch(() => { bgLoading = false; });
+}
+
 function drawBG(){
+  if(bgReady){
+    // Parallax image background — camX centers the arena between fighters.
+    const camX = (p1 && p2) ? (((p1.x + p2.x) / 2) - 480) * 0.1 : 0;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(BG_LAYERS.sky,        camX * -0.2, 0, CW, CH);
+    ctx.drawImage(BG_LAYERS.buildings,  camX * -0.5, 0, CW, CH);
+    ctx.drawImage(BG_LAYERS.foreground, camX * -1.0, 0, CW, CH);
+    return;
+  }
   const sg=ctx.createLinearGradient(0,0,0,CH);
   sg.addColorStop(0,'#010108');sg.addColorStop(1,'#060618');
   ctx.fillStyle=sg;ctx.fillRect(0,0,CW,CH);
@@ -1213,6 +1242,7 @@ document.addEventListener('keyup',e=>{keys[e.code]=false;});
 document.getElementById('startBtn').addEventListener('click',()=>{
   initAC();
   preloadSprites();
+  preloadBackground();
   p1=makeFighter(200,1,false);
   p2=makeFighter(760,-1,true);
   roundTimer=99;roundTick=0;
@@ -1236,6 +1266,7 @@ let cdFrameTimer=setInterval(()=>{
 
 if(!loopStarted){loopStarted=true;tick();}
 preloadSprites();
+preloadBackground();
 </script>
 </body>
 </html>
