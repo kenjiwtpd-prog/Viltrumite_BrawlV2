@@ -171,21 +171,50 @@ const SPR_SCALE = 2.0;
 const SPR_W = 108 * SPR_SCALE;
 const SPR_H = 108 * SPR_SCALE;
 
-// Pre-load all sprite images from embedded base64
+// Pre-load all sprite images from embedded base64.
+// For Mark's Hover_* frames (JPEG with black baked in upstream), we color-key
+// near-black pixels to alpha=0 so the parallax background shows through.
 const SPRITE_IMAGES = [];
 let spritesReady = false;
+
+const COLOR_KEYED = new Set(['Hover_Idle','Hover_Forward','Hover_Backwards']);
 
 function preloadSprites() {
   let total = 0, loaded = 0;
   SPRITE_DATA.forEach((char, ci) => {
     SPRITE_IMAGES[ci] = {};
     Object.entries(char.animations).forEach(([key, frames]) => {
+      const colorKey = ci === 0 && COLOR_KEYED.has(key);
       SPRITE_IMAGES[ci][key] = frames.map(src => {
         total++;
+        const slot = { ready: false, asset: null, w: 0, h: 0 };
         const img = new Image();
-        img.onload = () => { loaded++; if (loaded >= total) spritesReady = true; };
+        img.onload = () => {
+          const w = img.naturalWidth, h = img.naturalHeight;
+          if (colorKey) {
+            // Decode → drop near-black pixels → store transparent canvas
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const cx = c.getContext('2d');
+            cx.drawImage(img, 0, 0);
+            try {
+              const d = cx.getImageData(0, 0, w, h);
+              const px = d.data;
+              for (let i = 0; i < px.length; i += 4) {
+                if (px[i] + px[i+1] + px[i+2] < 30) px[i+3] = 0;
+              }
+              cx.putImageData(d, 0, 0);
+            } catch (_) { /* tainted canvas; fall through to raw image */ }
+            slot.asset = c;
+          } else {
+            slot.asset = img;
+          }
+          slot.w = w; slot.h = h; slot.ready = true;
+          loaded++;
+          if (loaded >= total) spritesReady = true;
+        };
         img.src = src;
-        return img;
+        return slot;
       });
     });
   });
@@ -205,12 +234,12 @@ function drawSpriteChar(ctx, f, state) {
 
   const numFrames = frames.length;
   const frameIdx = Math.floor(f.sf / SPR_TPF) % numFrames;
-  const img = frames[frameIdx];
-  if (!img || !img.complete || img.naturalWidth === 0) return false;
+  const slot = frames[frameIdx];
+  if (!slot || !slot.ready || !slot.w) return false;
 
   ctx.imageSmoothingEnabled = false;
   // Draw: bottom-center of sprite at (0,0) which is f.y in world space
-  ctx.drawImage(img, -SPR_W / 2, -SPR_H, SPR_W, SPR_H);
+  ctx.drawImage(slot.asset, -SPR_W / 2, -SPR_H, SPR_W, SPR_H);
   return true;
 }
 
