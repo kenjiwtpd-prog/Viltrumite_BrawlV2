@@ -519,10 +519,13 @@ let frameCount=0,loopStarted=false,gameRunning=false;
 let p1Combo=0,p2Combo=0,p1ComboTimer=0,p2ComboTimer=0;
 
 // ═══════════════ FIGHTER FACTORY ═══════════════
-function makeFighter(x,facing,isBot){
+// V8 balance: per-fighter max HP. Ult damage scales as 25% of attacker.maxHp.
+const MAX_HP_MARK = 500, MAX_HP_THRAGG = 600;
+
+function makeFighter(x,facing,isBot,maxHp){
   return{
     x,y:FL,vx:0,vy:0,facing,isBot,
-    hp:100,ult:0,onGround:true,
+    hp:maxHp,maxHp,ult:0,onGround:true,
     state:S.IDLE,sf:0,
     atkType:null,atkSp:0,atkAc:0,atkRc:0,atkHit:false,
     stunTimer:0,dashTimer:0,dashCD:0,
@@ -730,18 +733,20 @@ function updateUlt(f){
       f.x=op.x-f.facing*55;
     }
   }else if(f.state===S.ULTHIT){
+    // V8: total ult damage = 25% of attacker.maxHp.
+    // Split as ~60% across 6 small hits + ~40% final hit.
+    const ultTotal=Math.round(0.25*f.maxHp);
+    const smallEach=Math.round(ultTotal*0.6/6);
     if(f.ultTimer%10===0&&f.ultStep<6){
       f.ultStep++;
-      // V6: Thragg ult damage per-hit reduced (was 11 → 9) to prevent near-instant kill
-      const d=f===p1?8:9;
+      const d=smallEach;
       op.hp=Math.max(0,op.hp-d);op.flash=9;
       hitStop=10;shake(6);sfx('ult_hit');
       burst(op.x,op.y-72,f===p1?'#00e5ff':'#ff5500',16);
       addFloat('-'+d,op.x+(Math.random()-.5)*46,op.y-82-f.ultStep*14,f===p1?'#00e5ff':'#ff3d00');
     }
     if(f.ultStep>=6){
-      // V6: Final hit reduced (Thragg was 30 → 26; now total = 54+26=80 → 6*9+26=80 for Thragg, 6*8+20=68 for Mark)
-      const fd=f===p1?20:26;
+      const fd=ultTotal-smallEach*6;
       op.hp=Math.max(0,op.hp-fd);op.flash=18;
       op.state=S.HITSTUN;op.stunTimer=52;
       op.vx=f.facing*30;op.vy=-26;op.onGround=false;
@@ -1168,17 +1173,18 @@ function drawCountdown(){
 // ═══════════════ HUD ═══════════════
 function updateHUD(){
   if(!p1||!p2) return;
-  document.getElementById('p1hp').style.width=p1.hp+'%';
-  document.getElementById('p2hp').style.width=p2.hp+'%';
+  const p1Pct=(p1.hp/p1.maxHp)*100, p2Pct=(p2.hp/p2.maxHp)*100;
+  document.getElementById('p1hp').style.width=p1Pct+'%';
+  document.getElementById('p2hp').style.width=p2Pct+'%';
   document.getElementById('p1ult').style.width=p1.ult+'%';
   document.getElementById('p2ult').style.width=p2.ult+'%';
   const pulse=Math.sin(frameCount*.16)>.5?'#ff00ff':'#cc00ff';
   document.getElementById('p1ult').style.background=p1.ult>=100?pulse:'#9900cc';
   document.getElementById('p2ult').style.background=p2.ult>=100?pulse:'#9900cc';
   document.getElementById('p1hp').style.background=
-    p1.hp<25?'linear-gradient(90deg,#ff2200,#ff6600)':'linear-gradient(90deg,#00e5ff,#00ff99)';
+    p1Pct<25?'linear-gradient(90deg,#ff2200,#ff6600)':'linear-gradient(90deg,#00e5ff,#00ff99)';
   document.getElementById('p2hp').style.background=
-    p2.hp<25?'linear-gradient(270deg,#ff2200,#ff6600)':'linear-gradient(270deg,#ff3d00,#ff9900)';
+    p2Pct<25?'linear-gradient(270deg,#ff2200,#ff6600)':'linear-gradient(270deg,#ff3d00,#ff9900)';
 }
 
 // ═══════════════ WIN CHECK ═══════════════
@@ -1188,8 +1194,10 @@ function checkWin(){
   gameRunning=false;phase='end';
   let msg;
   if(roundTimer<=0){
-    if(p1.hp>p2.hp){msg='MARK WINS — TIME';p1.win=true;}
-    else if(p2.hp>p1.hp){msg='THRAGG WINS — TIME';p2.win=true;}
+    // Compare HP ratios so asymmetric maxHp doesn't auto-favor the tankier fighter.
+    const r1=p1.hp/p1.maxHp, r2=p2.hp/p2.maxHp;
+    if(r1>r2){msg='MARK WINS — TIME';p1.win=true;}
+    else if(r2>r1){msg='THRAGG WINS — TIME';p2.win=true;}
     else msg='DRAW';
   }else if(p1.hp<=0&&p2.hp<=0){msg='DRAW';}
   else if(p1.hp<=0){msg='THRAGG WINS';p2.win=true;}
@@ -1299,8 +1307,8 @@ document.getElementById('startBtn').addEventListener('click',()=>{
   initAC();
   preloadSprites();
   preloadBackground();
-  p1=makeFighter(200,1,false);
-  p2=makeFighter(760,-1,true);
+  p1=makeFighter(200,1,false,MAX_HP_MARK);
+  p2=makeFighter(760,-1,true,MAX_HP_THRAGG);
   // Mark hovers: start in hover idle, 10px above the floor
   p1.state=S.HOVER_IDLE;p1.y=FL-HOVER_OFFSET;
   roundTimer=99;roundTick=0;
