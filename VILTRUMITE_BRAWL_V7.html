@@ -60,24 +60,44 @@ button:hover{background:var(--p1);color:#000;box-shadow:0 0 24px rgba(0,229,255,
     <h1>VILTRUMITE BRAWL V7</h1>
     <div class="subtitle">PIXEL ARENA FIGHTER · 1 VS 1 · SPRITE EDITION</div>
     <div class="divider"></div>
-    <div class="ctrl-grid">
-      <div>MOVE <span>A / D</span></div>
-      <div>JUMP <span>W</span></div>
-      <div>DASH <span>Q</span></div>
-      <div>PUNCH <span>E</span></div>
-      <div>KICK <span>R</span></div>
-      <div>GRAB <span>T</span></div>
-      <div>BLOCK <span>F (hold)</span></div>
-      <div>COUNTER <span>C (timing!)</span></div>
-      <div colspan="2">ULTIMATE <span>V (full meter)</span></div>
+    <div style="display:flex;gap:28px;align-items:flex-start;justify-content:center;flex-wrap:wrap">
+      <div>
+        <div class="subtitle" style="color:#00e5ff;margin-bottom:6px">P1 — MARK</div>
+        <div class="ctrl-grid">
+          <div>MOVE <span>A / D</span></div>
+          <div>JUMP <span>W</span></div>
+          <div>DASH <span>Q</span></div>
+          <div>PUNCH <span>E</span></div>
+          <div>KICK <span>R</span></div>
+          <div>GRAB <span>T</span></div>
+          <div>BLOCK <span>F (hold)</span></div>
+          <div>COUNTER <span>C (timing!)</span></div>
+          <div colspan="2">ULTIMATE <span>V (full meter)</span></div>
+        </div>
+      </div>
+      <div id="p2ctrl" style="display:none">
+        <div class="subtitle" style="color:#ff6600;margin-bottom:6px">P2 — THRAGG</div>
+        <div class="ctrl-grid">
+          <div>MOVE <span>← / →</span></div>
+          <div>JUMP <span>↑</span></div>
+          <div>DASH <span>Numpad0</span></div>
+          <div>PUNCH <span>U</span></div>
+          <div>KICK <span>I</span></div>
+          <div>GRAB <span>O</span></div>
+          <div>BLOCK <span>LShift (hold)</span></div>
+          <div colspan="2">ULTIMATE <span>P (full meter)</span></div>
+        </div>
+      </div>
     </div>
     <div class="divider"></div>
     <div class="legend">
       <div class="legend-item"><div class="leg-ring" style="border-color:#00e5ff"></div><span style="color:#444466">ATTACK — BLOCKABLE</span></div>
       <div class="legend-item"><div class="leg-ring" style="border-color:#ff9900"></div><span style="color:#444466">GRAB — UNBLOCKABLE</span></div>
     </div>
-    <div class="subtitle" style="color:#383858">PUNCH→KICK COMBO · AIR ATTACKS · GRAB BREAKS BLOCK · WALL BOUNCE</div>
-    <button id="startBtn">START FIGHT</button>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:4px">
+      <button id="modeBtn" style="background:#1a1a2e;border:2px solid #555;color:#aaa;padding:8px 20px;font-size:0.85rem;letter-spacing:2px;cursor:pointer">1P VS AI</button>
+      <button id="startBtn">START FIGHT</button>
+    </div>
   </div>
 </div>
 
@@ -455,6 +475,7 @@ function drawThragg(cx,state,sf){
 // ═══════════════ GLOBAL STATE ═══════════════
 let p1=null,p2=null;
 const keys={};
+let twoPlayerMode=false;
 let phase='menu',cdFrame=0;
 let roundTimer=99,roundTick=0;
 let hitStop=0;
@@ -555,8 +576,8 @@ function doCounter(f){
 }
 
 function doUlt(f){
-  // V8: Thragg's ULT sequence is disabled — only Mark casts.
-  if(f!==p1) return;
+  // Thragg can only ult in 2-player mode; in 1P mode only Mark casts.
+  if(f!==p1&&!twoPlayerMode) return;
   const op=opp(f);
   if(!op) return;
   // Phase 2: second V while still in ULT_ACTIVATION → activation attack.
@@ -839,6 +860,7 @@ function updateFighter(f){
 function botUpdate(){
   const f=p2,op=p1;
   if(!gameRunning||phase!=='fight'||!f||!op) return;
+  if(!f.isBot) return;
   if(f.win||op.win) return;
   if(f.state===S.BLOCK&&!inActive(op)) f.state=S.IDLE;
   if(!canAct(f)) return;
@@ -1249,6 +1271,24 @@ function tick(){
           }
         }
       }
+      // ── P2 HUMAN INPUT (2-player mode only) ──
+      if(twoPlayerMode&&canAct(p2)){
+        if(keys['ArrowLeft'])  p2.vx=-5;
+        if(keys['ArrowRight']) p2.vx=5;
+        if(keys['ArrowUp']&&p2.onGround){p2.vy=-16;p2.onGround=false;}
+        if(keys['ShiftLeft']&&p2.onGround&&!isAtk(p2)&&!p2.ultActive){
+          p2.state=S.BLOCK;
+        }else{
+          if(p2.state===S.BLOCK) p2.state=restIdle(p2);
+          if(!isAtk(p2)&&p2.state!==S.DASH&&p2.state!==S.COUNTER&&p2.state!==S.COUNTERHIT){
+            const movingToward=keys[p2.facing===1?'ArrowRight':'ArrowLeft'];
+            const movingAway  =keys[p2.facing===1?'ArrowLeft':'ArrowRight'];
+            if(movingToward||keys['ArrowUp']) p2.state=S.WALK;
+            else if(movingAway) p2.state=S.WALK;
+            else p2.state=restIdle(p2);
+          }
+        }
+      }
       roundTick++;
       if(roundTick>=60){
         roundTick=0;roundTimer=Math.max(0,roundTimer-1);
@@ -1268,26 +1308,47 @@ function tick(){
 document.addEventListener('keydown',e=>{
   if(!keys[e.code]){
     keys[e.code]=true;
-    if(gameRunning&&phase==='fight'&&p1&&!p1.win){
-      if(e.code==='KeyQ') doDash(p1);
-      if(e.code==='KeyE') doAtk(p1,'punch');
-      if(e.code==='KeyR') doAtk(p1,'kick');
-      if(e.code==='KeyT') doAtk(p1,'grab');
-      if(e.code==='KeyC') doCounter(p1);
-      if(e.code==='KeyV') doUlt(p1);
+    if(gameRunning&&phase==='fight'){
+      if(p1&&!p1.win){
+        if(e.code==='KeyQ') doDash(p1);
+        if(e.code==='KeyE') doAtk(p1,'punch');
+        if(e.code==='KeyR') doAtk(p1,'kick');
+        if(e.code==='KeyT') doAtk(p1,'grab');
+        if(e.code==='KeyC') doCounter(p1);
+        if(e.code==='KeyV') doUlt(p1);
+      }
+      if(twoPlayerMode&&p2&&!p2.win){
+        if(e.code==='Numpad0')    doDash(p2);
+        if(e.code==='KeyU')       doAtk(p2,'punch');
+        if(e.code==='KeyI')       doAtk(p2,'kick');
+        if(e.code==='KeyO')       doAtk(p2,'grab');
+        if(e.code==='KeyP')       doUlt(p2);
+      }
     }
   }
-  if(['KeyW','KeyA','KeyS','KeyD','KeyF','KeyC','KeyV','Space'].includes(e.code)) e.preventDefault();
+  if(['KeyW','KeyA','KeyS','KeyD','KeyF','KeyC','KeyV','Space','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','ShiftLeft'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup',e=>{keys[e.code]=false;});
 
 // ═══════════════ START / REMATCH ═══════════════
+document.getElementById('modeBtn').addEventListener('click',()=>{
+  twoPlayerMode=!twoPlayerMode;
+  const btn=document.getElementById('modeBtn');
+  const p2ctrl=document.getElementById('p2ctrl');
+  if(twoPlayerMode){
+    btn.textContent='2P LOCAL';btn.style.borderColor='#ff6600';btn.style.color='#ff6600';
+    p2ctrl.style.display='block';
+  }else{
+    btn.textContent='1P VS AI';btn.style.borderColor='#555';btn.style.color='#aaa';
+    p2ctrl.style.display='none';
+  }
+});
 document.getElementById('startBtn').addEventListener('click',()=>{
   initAC();
   preloadSprites();
   preloadBackground();
   p1=makeFighter(200,1,false,MAX_HP_MARK);
-  p2=makeFighter(760,-1,true,MAX_HP_THRAGG);
+  p2=makeFighter(760,-1,!twoPlayerMode,MAX_HP_THRAGG);
   // Mark hovers: start in hover idle, 10px above the floor
   p1.state=S.HOVER_IDLE;p1.y=FL-HOVER_OFFSET;
   roundTimer=99;roundTick=0;
