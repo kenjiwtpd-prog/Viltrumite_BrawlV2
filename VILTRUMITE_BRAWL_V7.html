@@ -739,10 +739,13 @@ function updateUlt(f){
     const animDuration = animFrames * SPR_TPF;
     if(!f._ultStunApplied && f.sf>=animDuration){
       f._ultStunApplied=true;
+      const ultDmg=Math.round(0.25*op.maxHp);
+      op.hp=Math.max(0,op.hp-ultDmg);
       op.state=S.STUNNED;op.stunTimer=180;op.vx=0;op.sf=0;
       shake(16);addFlash('rgba(255,255,255,0.55)',8);
       burst(op.x,op.y-60,'#00e5ff',26);
-      addFloat('STUNNED!',op.x,op.y-110,'#ffe066');
+      addFloat('-'+ultDmg,op.x,op.y-110,'#ff4444');
+      addFloat('STUNNED!',op.x,op.y-150,'#ffe066');
       sfx('ult_hit');
     }
     if(f.sf>=animDuration+12){
