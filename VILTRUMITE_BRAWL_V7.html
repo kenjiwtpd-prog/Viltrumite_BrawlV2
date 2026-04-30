@@ -163,6 +163,7 @@ let spritesReady = false;
 const COLOR_KEYED = new Set([
   'Hover_Idle','Hover_Forward','Hover_Backwards',
   'Ult_Activation','Ult_Activation_Attack',
+  'Emperor_Mark_Grab_east','Emperor_Mark_Knockdown','Emperor_Mark_getting-up_south',
 ]);
 
 function preloadSprites() {
@@ -544,11 +545,13 @@ function doCounter(f){
 }
 
 function doUlt(f){
+  // V8: Thragg's ULT sequence is disabled — only Mark casts.
+  if(f!==p1) return;
   const op=opp(f);
   if(!op) return;
-  // Mark phase 2: second V while in ULT_ACTIVATION → start activation attack.
-  // Stun is applied later, when the attack animation has finished playing.
-  if(f===p1&&f.ultActive&&f.state===S.ULT_ACTIVATION){
+  // Phase 2: second V while still in ULT_ACTIVATION → activation attack.
+  // The stun is applied later, when the attack animation has played through.
+  if(f.ultActive&&f.state===S.ULT_ACTIVATION){
     f.state=S.ULT_ACTIVATION_ATTACK;f.sf=0;f.ultTimer=0;f.vx=0;
     sfx('ult_hit');shake(8);
     return;
@@ -556,10 +559,9 @@ function doUlt(f){
   // Phase 1: initial trigger — full ult bar, not already ulting.
   if(f.ult<100||f.ultActive||!canAct(f)) return;
   f.ult=0;f.ultActive=true;f.ultStep=0;f.ultTimer=0;f.sf=0;
-  // Mark uses the new activation flow; Thragg keeps the legacy charge→hit chain.
-  f.state = (f===p1) ? S.ULT_ACTIVATION : S.ULTCHARGE;
+  f.state=S.ULT_ACTIVATION;
   sfx('ult_charge');
-  shake(12);addFlash(f===p1?'rgba(0,229,255,0.45)':'rgba(255,61,0,0.45)',24);
+  shake(12);addFlash('rgba(0,229,255,0.45)',24);
   spawnAura(f);
 }
 
@@ -811,7 +813,8 @@ function updateFighter(f){
       break;
     case S.HITSTUN: f.stunTimer--;if(f.stunTimer<=0){f.state=f.onGround?restIdle(f):S.FALL;} break;
     case S.KNOCKDOWN: f.stunTimer--;if(f.stunTimer<=0){f.state=S.GETUP;f.sf=0;} break;
-    case S.GETUP: if(f.sf>=34) f.state=restIdle(f); break;
+    // V8: GETUP slowed to ~70 frames so the 10-frame get-up animation can play through.
+    case S.GETUP: if(f.sf>=70) f.state=restIdle(f); break;
     case S.ULTCHARGE:case S.ULTHIT:case S.ULTFINISH:case S.ULT_ACTIVATION:case S.ULT_ACTIVATION_ATTACK: updateUlt(f); break;
     case S.STUNNED:
       f.vx=0;
