@@ -323,7 +323,7 @@ const S={
 };
 
 // Mark hovers 12px above the floor; helpers centralize that offset.
-const HOVER_OFFSET = 8;
+const HOVER_OFFSET = 2;
 const groundY = (f) => FL - HOVER_OFFSET;
 const restIdle = (f) => (f === p1 ? S.HOVER_IDLE : S.IDLE);
 const isHover = (s) => s===S.HOVER_IDLE||s===S.HOVER_FORWARD||s===S.HOVER_BACKWARDS;
