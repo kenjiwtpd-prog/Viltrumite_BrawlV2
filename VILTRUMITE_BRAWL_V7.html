@@ -322,8 +322,8 @@ const S={
 };
 
 // Mark hovers 12px above the floor; helpers centralize that offset.
-const HOVER_OFFSET = 12;
-const groundY = (f) => (f === p1 ? FL - HOVER_OFFSET : FL);
+const HOVER_OFFSET = 4;
+const groundY = (f) => FL - HOVER_OFFSET;
 const restIdle = (f) => (f === p1 ? S.HOVER_IDLE : S.IDLE);
 const isHover = (s) => s===S.HOVER_IDLE||s===S.HOVER_FORWARD||s===S.HOVER_BACKWARDS;
 
@@ -783,7 +783,7 @@ function updateFighter(f){
     addFloat('WALL!',f.x,f.y-82,'#dddddd');
   }
 
-  // Mark rests at FL - HOVER_OFFSET; Thragg at FL.
+  // Both rest at FL - HOVER_OFFSET (slightly above ground).
   const _gy = groundY(f);
   if(f.y>=_gy){
     const wasAir=!f.onGround;
@@ -1352,8 +1352,9 @@ document.getElementById('startBtn').addEventListener('click',()=>{
   preloadBackground();
   p1=makeFighter(200,1,false,MAX_HP_MARK);
   p2=makeFighter(760,-1,!twoPlayerMode,MAX_HP_THRAGG);
-  // Mark hovers: start in hover idle, 10px above the floor
+  // Both start slightly above floor
   p1.state=S.HOVER_IDLE;p1.y=FL-HOVER_OFFSET;
+  p2.y=FL-HOVER_OFFSET;
   roundTimer=99;roundTick=0;
   particles=[];floats=[];rings=[];hitStop=0;shakeAmt=0;
   flashColor=null;flashFrames=0;gameRunning=false;
