@@ -323,7 +323,7 @@ const S={
 };
 
 // Mark hovers 12px above the floor; helpers centralize that offset.
-const HOVER_OFFSET = 2;
+const HOVER_OFFSET = 8;
 const groundY = (f) => FL - HOVER_OFFSET;
 const restIdle = (f) => (f === p1 ? S.HOVER_IDLE : S.IDLE);
 const isHover = (s) => s===S.HOVER_IDLE||s===S.HOVER_FORWARD||s===S.HOVER_BACKWARDS;
@@ -1083,10 +1083,15 @@ function preloadBackground(){
   bgLoading = true;
   // Pull data URL from global injected by apocalyptic_pixel_bg_1.js
   const src = (typeof apocalypticPixelBg1 !== 'undefined') ? apocalypticPixelBg1 : null;
-  if(!src){ bgLoading = false; return; }
+  console.log('[BG] preloadBackground; apocalypticPixelBg1 length:', src?.length ?? 'undefined');
+  if(!src){
+    console.warn('[BG] apocalypticPixelBg1 global missing — using procedural fallback. Make sure apocalyptic_pixel_bg_1.js is in the same directory as the HTML.');
+    bgLoading = false;
+    return;
+  }
   const img = new Image();
-  img.onload  = () => { bgImg = img; bgReady = true; };
-  img.onerror = () => { bgLoading = false; };
+  img.onload  = () => { bgImg = img; bgReady = true; console.log('[BG] image loaded:', img.naturalWidth+'x'+img.naturalHeight); };
+  img.onerror = (e) => { bgLoading = false; console.error('[BG] image decode failed', e); };
   img.src = src;
 }
 
@@ -1338,6 +1343,7 @@ document.getElementById('startBtn').addEventListener('click',()=>{
   // Both start slightly above floor
   p1.state=S.HOVER_IDLE;p1.y=FL-HOVER_OFFSET;
   p2.y=FL-HOVER_OFFSET;
+  console.log('[Hover] HOVER_OFFSET='+HOVER_OFFSET+'px FL='+FL+' p1.y='+p1.y+' p2.y='+p2.y+' twoPlayerMode='+twoPlayerMode);
   roundTimer=99;roundTick=0;
   particles=[];floats=[];rings=[];hitStop=0;shakeAmt=0;
   flashColor=null;flashFrames=0;gameRunning=false;
