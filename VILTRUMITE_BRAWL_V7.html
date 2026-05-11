@@ -38,6 +38,14 @@ canvas{flex:1;display:block;width:960px!important;}
 .divider{width:220px;height:1px;background:#141440;margin:2px 0;}
 button{font-family:'Bebas Neue';font-size:1.3rem;letter-spacing:6px;padding:12px 38px;background:none;border:2px solid var(--p1);color:var(--p1);cursor:pointer;transition:all .2s;margin-top:6px;}
 button:hover{background:var(--p1);color:#000;box-shadow:0 0 24px rgba(0,229,255,0.5);}
+.portrait-grid{display:grid;grid-template-columns:repeat(4,100px);gap:8px;margin:12px 0;}
+.portrait{width:100px;height:100px;border:2px solid #555;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;text-align:center;cursor:pointer;transition:all .15s;color:#fff;font-weight:bold;}
+.portrait:hover{border-color:#fff;box-shadow:0 0 12px currentColor;transform:scale(1.05);}
+.portrait.selected{border-width:3px;box-shadow:0 0 20px currentColor;}
+#moveList{margin-top:12px;color:#aaa;font-size:0.7rem;line-height:1.6;font-family:monospace;min-height:80px;}
+.modeBtn{padding:10px 20px;font-size:1rem;margin:4px;margin-top:12px;}
+#branchMenu{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.95);padding:30px;border:2px solid #fff;border-radius:8px;z-index:100;text-align:center;}
+#branchMenu button{margin:12px;}
 </style>
 </head>
 <body>
@@ -112,9 +120,16 @@ button:hover{background:var(--p1);color:#000;box-shadow:0 0 24px rgba(0,229,255,
       <div class="legend-item"><div class="leg-ring" style="border-color:#ff9900"></div><span style="color:#444466">GRAB — UNBLOCKABLE</span></div>
     </div>
     <div style="display:flex;gap:12px;align-items:center;margin-top:4px">
-      <button id="modeBtn" style="background:#1a1a2e;border:2px solid #555;color:#aaa;padding:8px 20px;font-size:0.85rem;letter-spacing:2px;cursor:pointer">1P VS AI</button>
+      <button id="modeBtn" class="modeBtn" style="background:#1a1a2e;border:2px solid #555;color:#aaa;padding:8px 20px;font-size:0.85rem;letter-spacing:2px;cursor:pointer">1P VS AI</button>
+      <button id="arcadeBtn" class="modeBtn" style="background:#1a1a2e;border:2px solid #444;color:#888;padding:8px 20px;font-size:0.85rem;letter-spacing:2px;cursor:pointer">ARCADE</button>
+      <button id="trainingBtn" class="modeBtn" style="background:#1a1a2e;border:2px solid #444;color:#888;padding:8px 20px;font-size:0.85rem;letter-spacing:2px;cursor:pointer">TRAINING</button>
       <button id="startBtn">START FIGHT</button>
     </div>
+  </div>
+  <div id="branchMenu">
+    <div style="color:#fff;font-size:1.2rem;margin-bottom:16px">CHOOSE YOUR PATH</div>
+    <button id="pathA" onclick="choosePath('A')" style="min-width:120px">PATH A</button>
+    <button id="pathB" onclick="choosePath('B')" style="min-width:120px">PATH B</button>
   </div>
 </div>
 
@@ -654,6 +669,19 @@ const isHover = (s) => s===S.HOVER_IDLE||s===S.HOVER_FORWARD||s===S.HOVER_BACKWA
 //  MARK  — fast, precise, moderate recovery
 //  THRAGG — slower startup & recovery, hits harder, grabs longer
 // ═══════════════════════════════════════════════════════════════
+// Audio helpers
+function startMusicDrone(){
+  if(!AC||musicGain) return;
+  musicGain=AC.createGain();musicGain.connect(AC.destination);musicGain.gain.setValueAtTime(0.15,AC.currentTime);
+  const o=AC.createOscillator();o.frequency.value=80;o.type='sine';
+  const g=AC.createGain();g.connect(musicGain);o.connect(g);g.gain.setValueAtTime(0,AC.currentTime);
+  g.gain.linearRampToValueAtTime(0.3,AC.currentTime+0.5);o.start(AC.currentTime);
+}
+function duckMusic(amt,ms){
+  if(!musicGain) return;
+  const t=AC.currentTime;musicGain.gain.linearRampToValueAtTime(0.15-amt,t+0.08);
+  musicGain.gain.linearRampToValueAtTime(0.15,t+ms/1000);
+}
 const ATK={
   punch:    {sp:4, ac:4, rc:11, dmg:9,  ug:5,  hs:14, bs:5,  kx:7,  ky:-2,  snd:'punch'},
   kick:     {sp:7, ac:5, rc:15, dmg:13, ug:8,  hs:22, bs:8,  kx:11, ky:-10, snd:'kick'},
@@ -795,6 +823,16 @@ let particles=[],floats=[],rings=[];
 let flashColor=null,flashFrames=0;
 let frameCount=0,loopStarted=false,gameRunning=false;
 let p1Combo=0,p2Combo=0,p1ComboTimer=0,p2ComboTimer=0;
+let trainingMode=false,paused=false,musicGain=null;
+let camZoom=1,camTargetZoom=1,camOffX=0,camOffY=0,camTargetX=0,camTargetY=0,camFollow=null,camFollowFrames=0;
+const PPOOL_SIZE=100;
+const pPool=Array.from({length:PPOOL_SIZE},()=>({alive:false,x:0,y:0,vx:0,vy:0,life:0,ml:0,color:'',size:0,sq:false}));
+let pPoolIdx=0;
+function getP(){
+  for(let i=0;i<PPOOL_SIZE;i++){if(!pPool[i].alive)return pPool[i];}
+  pPoolIdx=(pPoolIdx+1)%PPOOL_SIZE;return pPool[pPoolIdx];
+}
+function easeInOutCubic(t){return t<0.5?4*t*t*t:(1-Math.pow(-2*t+2,3)/2);}
 
 // ═══════════════ FIGHTER FACTORY ═══════════════
 // V8 balance: per-fighter max HP lives in FIGHTERS[name].maxHp.
@@ -906,6 +944,7 @@ function doUlt(f){
   f.state=S.ULT_ACTIVATION_ATTACK;
   sfx('ult_charge');sfx('ult_hit');
   shake(12);addFlash('rgba(0,229,255,0.45)',24);
+  camTargetZoom=1.2;
   spawnAura(f);
 }
 
@@ -934,7 +973,8 @@ function checkHit(a,d){
     a.state=S.HITSTUN;a.stunTimer=36;
     a.vx=-a.facing*11;a.vy=-10;a.onGround=false;a.flash=14;
     hitStop=10;shake(7);sfx('counter');
-    burst(d.x,d.y-65,'#ffffff',20);
+    goldBurst(d.x,d.y-65);addFlash('rgba(255,255,255,0.9)',12);
+    burst(d.x,d.y-65,'#ffffff',8);
     addFloat('COUNTER!',d.x,d.y-102,'#ffffff');
     addFloat('-18',a.x,a.y-76,d===p1?'#00e5ff':'#ff3d00');
     a.hp=Math.max(0,a.hp-18);
@@ -969,7 +1009,7 @@ function checkHit(a,d){
     d.grabInitStun=ad.hs;d.grabPhase=0;
     hitStop=Math.max(hitStop,3);shake(8,4);sfx('hit_grab');
     squash(d,0.68,1.42,10);squash(a,1.12,0.9,5);
-    burst(d.x,d.y-64,'#ff8800',20);
+    goldBurst(d.x,d.y-64);burst(d.x,d.y-64,'#ff8800',10);
     addFloat('-'+ad.dmg,d.x,d.y-90,a===p1?'#00e5ff':'#ff3d00');
     checkUltReady(a);
 
@@ -984,10 +1024,10 @@ function checkHit(a,d){
     // V6: Thragg hits land with extra hitstop weight
     const base=a.atkType==='kick'?11:8;
     hitStop=a===p2?base+3:base;
-    if(a.atkType==='kick'){hitStop=Math.max(hitStop,3);shake(8,4);}else shake(5);
+    if(a.atkType==='kick'){hitStop=Math.max(hitStop,3);shake(8,4);bloodBurst(d.x,d.y-64);}else{shake(5);sparkBurst(d.x,d.y-64);}
     sfx(a.atkType==='kick'?'hit_kick':'hit_punch');
     if(crit){sfx('crit');addFlash('rgba(255,255,255,0.28)',5);}
-    burst(d.x,d.y-64,a===p1?'#00aaff':'#ff5500',crit?22:13);
+    burst(d.x,d.y-64,a===p1?'#00aaff':'#ff5500',crit?10:6);
     addFloat(crit?('⚡'+fd+'!'):('-'+fd),d.x,d.y-92,
              crit?'#ffffff':a===p1?'#00e5ff':'#ff3d00');
     checkUltReady(a);
@@ -999,6 +1039,7 @@ function checkHit(a,d){
       d.state=S.HITSTUN;d.stunTimer=Math.max(d.stunTimer,30);
       a.canCancel=true;
       addFloat('STAGGER!',d.x,d.y-110,'#ffe066');
+      duckMusic(0.08,800);
     }
     updateComboDisplay();
   }
@@ -1088,6 +1129,7 @@ function updateUlt(f){
     if(f.sf>=animDuration+12){
       f._ultStunApplied=false;
       f.ultActive=false;f.state=restIdle(f);
+      camTargetZoom=1;
     }
   }
 }
@@ -1131,6 +1173,7 @@ function updateFighter(f){
         // V6: Thragg knockdown stun slightly longer (heavier = slower getup)
         f.stunTimer=f===p2?52:42;f.sf=0;
         shake(f===p2?9:5);
+        camTargetZoom=0.95;setTimeout(()=>{camTargetZoom=1;},300);
         squash(f,f===p2?1.3:1.22,f===p2?0.60:0.68,f===p2?13:9);
         burst(f.x,FL,'#223344',f===p2?16:9);sfx('land');
       }else if([S.FALL,S.JUMP,S.AIRPUNCH].includes(f.state)){
@@ -1183,7 +1226,7 @@ function updateFighter(f){
         f.grabPhase=ratio>0.55?0:ratio>0.15?1:2;
       }
       // V6: grab release pops victim upward for a more dramatic throw arc
-      if(f.stunTimer<=0){f.vy=-11;f.vx=f.facing*-5;f.state=S.FALL;f.onGround=false;sfx('throw');}
+      if(f.stunTimer<=0){f.vy=-11;f.vx=f.facing*-5;f.state=S.FALL;f.onGround=false;sfx('throw');camFollow=f;camFollowFrames=90;}
       break;
     case S.HITSTUN: f.stunTimer--;if(f.stunTimer<=0){f.state=f.onGround?restIdle(f):S.FALL;} break;
     case S.KNOCKDOWN: f.stunTimer--;if(f.stunTimer<=0){f.state=S.GETUP;f.sf=0;} break;
@@ -1257,26 +1300,56 @@ function botUpdate(){
 function burst(x,y,color,n){
   for(let i=0;i<n;i++){
     const a=Math.random()*Math.PI*2,s=3+Math.random()*12;
-    const p={x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-3,
-             color,size:2+Math.random()*4.5,sq:Math.random()>.45,life:0,ml:0};
-    p.life=p.ml=14+(Math.random()*15|0);particles.push(p);
+    const p=getP();
+    p.x=x;p.y=y;p.vx=Math.cos(a)*s;p.vy=Math.sin(a)*s-3;
+    p.color=color;p.size=2+Math.random()*4.5;p.sq=Math.random()>.45;
+    p.life=p.ml=14+(Math.random()*15|0);p.alive=true;
+  }
+}
+function sparkBurst(x,y){
+  for(let i=0;i<8;i++){
+    const a=Math.random()*Math.PI*2,s=5+Math.random()*14;
+    const p=getP();
+    p.x=x;p.y=y;p.vx=Math.cos(a)*s;p.vy=Math.sin(a)*s-4;
+    p.color='#ffff00';p.size=1.5+Math.random()*2;p.sq=false;
+    p.life=p.ml=8;p.alive=true;
+  }
+}
+function bloodBurst(x,y){
+  for(let i=0;i<15;i++){
+    const a=Math.random()*Math.PI*2,s=3+Math.random()*9;
+    const p=getP();
+    p.x=x;p.y=y;p.vx=Math.cos(a)*s;p.vy=Math.sin(a)*s-2;
+    p.color='#cc3333';p.size=2+Math.random()*3;p.sq=true;
+    p.life=p.ml=22+(Math.random()*8|0);p.alive=true;
+  }
+}
+function goldBurst(x,y){
+  for(let i=0;i<30;i++){
+    const a=Math.random()*Math.PI*2,s=4+Math.random()*11;
+    const p=getP();
+    p.x=x;p.y=y;p.vx=Math.cos(a)*s;p.vy=Math.sin(a)*s-3;
+    p.color='#ffdd00';p.size=1.5+Math.random()*2.5;p.sq=false;
+    p.life=p.ml=16+(Math.random()*6|0);p.alive=true;
   }
 }
 function spawnAura(f){
   for(let i=0;i<30;i++){
     const a=Math.random()*Math.PI*2,rr=24+Math.random()*80;
-    const p={x:f.x+Math.cos(a)*rr,y:f.y-80+Math.sin(a)*rr,
-             vx:Math.cos(a)*2.8,vy:Math.sin(a)*2.8-5.5,
-             color:f===p1?'#00e5ff':'#ff3d00',size:3+Math.random()*5,sq:true,life:0,ml:0};
-    p.life=p.ml=24+(Math.random()*10|0);particles.push(p);
+    const p=getP();
+    p.x=f.x+Math.cos(a)*rr;p.y=f.y-80+Math.sin(a)*rr;
+    p.vx=Math.cos(a)*2.8;p.vy=Math.sin(a)*2.8-5.5;
+    p.color=f===p1?'#00e5ff':'#ff3d00';p.size=3+Math.random()*5;p.sq=true;
+    p.life=p.ml=24+(Math.random()*10|0);p.alive=true;
   }
 }
 function spawnTrail(f){
   for(let i=0;i<6;i++){
-    const p={x:f.x+(Math.random()-.5)*18,y:f.y-55+(Math.random()-.5)*32,
-             vx:(Math.random()-.5)*2.5,vy:-1.5-Math.random()*2.5,
-             color:f===p1?'#00e5ff':'#ff5500',size:2+Math.random()*3,sq:false,life:0,ml:0};
-    p.life=p.ml=12+(Math.random()*8|0);particles.push(p);
+    const p=getP();
+    p.x=f.x+(Math.random()-.5)*18;p.y=f.y-55+(Math.random()-.5)*32;
+    p.vx=(Math.random()-.5)*2.5;p.vy=-1.5-Math.random()*2.5;
+    p.color=f===p1?'#00e5ff':'#ff5500';p.size=2+Math.random()*3;p.sq=false;
+    p.life=p.ml=12+(Math.random()*8|0);p.alive=true;
   }
 }
 function shake(a,cycles){
@@ -1647,8 +1720,12 @@ function checkWin(){
   if(p1.win) p1.state=S.VICTORY;if(p2.win) p2.state=S.VICTORY;
   document.getElementById('status').textContent=msg;
   setTimeout(()=>{
-    document.getElementById('overlay').style.display='flex';
-    document.getElementById('startBtn').textContent='REMATCH';
+    if(arcadeMode&&p1.win){
+      nextArcade();
+    }else{
+      document.getElementById('overlay').style.display='flex';
+      document.getElementById('startBtn').textContent='REMATCH';
+    }
   },2900);
 }
 
@@ -1667,7 +1744,14 @@ function drawFrame(){
   }else if(shakeAmt>0.4){
     shakeX=(Math.random()-.5)*shakeAmt;shakeY=(Math.random()-.5)*shakeAmt;shakeAmt*=0.79;
   }else{shakeX=shakeY=shakeAmt=0;}
+  camZoom+=(camTargetZoom-camZoom)*0.12;
+  if(camFollow&&camFollowFrames>0){
+    camOffX+=(camFollow.x-320-camOffX)*0.15;
+    camOffY+=(camFollow.y-80-camOffY)*0.15;
+    camFollowFrames--;
+  }else{camOffX+=(0-camOffX)*0.08;camOffY+=(0-camOffY)*0.08;}
   ctx.save();ctx.translate(shakeX,shakeY);
+  ctx.translate(CW/2,CH/2);ctx.scale(camZoom,camZoom);ctx.translate(-CW/2-camOffX,-CH/2-camOffY);
   drawBG();
   if(flashFrames>0){ctx.fillStyle=flashColor;ctx.fillRect(0,0,CW,CH);flashFrames--;}
 
@@ -1679,13 +1763,16 @@ function drawFrame(){
     ctx.globalAlpha=1;return rg.life>0;
   });
 
-  particles=particles.filter(p=>{
+  for(let i=0;i<PPOOL_SIZE;i++){
+    const p=pPool[i];
+    if(!p.alive) continue;
     p.x+=p.vx;p.y+=p.vy;p.vy+=0.44;p.vx*=0.93;p.life--;
     ctx.globalAlpha=p.life/p.ml;ctx.fillStyle=p.color;
     if(p.sq) ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
     else{ctx.beginPath();ctx.arc(p.x,p.y,p.size/2,0,Math.PI*2);ctx.fill();}
-    ctx.globalAlpha=1;return p.life>0;
-  });
+    ctx.globalAlpha=1;
+    if(p.life<=0) p.alive=false;
+  }
 
   if(p1&&p2){const[a,b]=p1.x<p2.x?[p1,p2]:[p2,p1];drawFighter(a);drawFighter(b);}
 
@@ -1698,6 +1785,13 @@ function drawFrame(){
     ctx.globalAlpha=1;return ft.life>0;
   });
   if(phase==='countdown') drawCountdown();
+  if(trainingMode&&p1&&p2){
+    ctx.globalAlpha=0.7;
+    if(inActive(p1)){ctx.strokeStyle='#ff4444';ctx.lineWidth=2;ctx.strokeRect(p1.x-getReach(p1,p1.atkType),p1.y-75,getReach(p1,p1.atkType)*2,40);}
+    if(inActive(p2)){ctx.strokeStyle='#ff4444';ctx.lineWidth=2;ctx.strokeRect(p2.x-getReach(p2,p2.atkType),p2.y-75,getReach(p2,p2.atkType)*2,40);}
+    ctx.strokeStyle='#4488ff';ctx.lineWidth=2;ctx.strokeRect(p1.x-20,p1.y-70,40,50);ctx.strokeRect(p2.x-20,p2.y-70,40,50);
+    ctx.globalAlpha=1;
+  }
   ctx.restore();
   updateHUD();
   if(p1ComboTimer>0){p1ComboTimer--;if(!p1ComboTimer){p1Combo=0;document.getElementById('combo1').style.opacity='0';}}
@@ -1709,7 +1803,7 @@ function tick(){
   requestAnimationFrame(tick);
   if(hitStop>0) hitStop--;
   if((phase==='fight'||phase==='countdown')&&p1&&p2){
-    if(phase==='fight'&&gameRunning&&hitStop===0){
+    if(phase==='fight'&&gameRunning&&hitStop===0&&!paused){
       updateFighter(p1);updateFighter(p2);botUpdate();
       if(canAct(p1)){
         // Velocity (A/D move horizontally; W jumps)
@@ -1797,11 +1891,42 @@ document.addEventListener('keydown',e=>{
         if(e.code==='KeyJ') doDash(p2);
         if(e.code==='KeyP') doUlt(p2);             // ULT
       }
+      if(trainingMode){
+        if(e.code==='KeySpace') paused=!paused;
+        if(paused&&e.code==='KeyO') {paused=false;updateFighter(p1);updateFighter(p2);paused=true;}
+      }
     }
   }
   if(['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyR','KeyT','KeyF','KeyV','KeyU','KeyI','KeyO','KeyP','KeyJ','KeyK','Space','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup',e=>{keys[e.code]=false;});
+
+// ═══════════════ ARCADE MODE ═══════════════
+let arcadeMode=false,arcadeIdx=0,arcadePathA=['Nolan','Mark'],arcadePathB=['BattleBeast','Conquest'];
+function startArcade(){
+  arcadeMode=true;arcadeIdx=0;
+  document.getElementById('overlay').style.display='none';
+  startFight();
+}
+function nextArcade(){
+  arcadeIdx++;
+  if(arcadeIdx<2){
+    document.getElementById('branchMenu').style.display='flex';
+    document.getElementById('branchMenu').style.flexDirection='column';
+  }else{
+    document.getElementById('modeBtn').style.borderColor='#555';
+    document.getElementById('modeBtn').style.color='#aaa';
+    document.getElementById('modeBtn').textContent='1P VS AI';
+    twoPlayerMode=false;arcadeMode=false;
+    document.getElementById('overlay').style.display='flex';
+  }
+}
+function choosePath(path){
+  const roster=path==='A'?arcadePathA:arcadePathB;
+  setP2Choice(roster[arcadeIdx]);
+  document.getElementById('branchMenu').style.display='none';
+  startFight();
+}
 
 // ═══════════════ START / REMATCH ═══════════════
 document.getElementById('modeBtn').addEventListener('click',()=>{
@@ -1815,6 +1940,29 @@ document.getElementById('modeBtn').addEventListener('click',()=>{
   }
   // P2 fighter picker stays visible in both modes — in 1P it just chooses
   // which fighter the AI plays as.
+});
+document.getElementById('arcadeBtn').addEventListener('click',()=>{
+  arcadeMode=true;arcadeIdx=0;twoPlayerMode=false;
+  document.getElementById('modeBtn').style.borderColor='#6633ff';
+  document.getElementById('modeBtn').style.color='#bb66ff';
+  document.getElementById('modeBtn').textContent='ARCADE';
+  setP2Choice(arcadePathA[0]);
+  startArcade();
+});
+document.getElementById('trainingBtn').addEventListener('click',()=>{
+  trainingMode=!trainingMode;
+  const btn=document.getElementById('trainingBtn');
+  btn.style.borderColor=trainingMode?'#44ff44':'#444';
+  btn.style.color=trainingMode?'#66ff66':'#888';
+  if(trainingMode){
+    twoPlayerMode=false;
+    setP2Choice('Mark');
+    p1Choice='Mark';
+    startFight();
+  }else{
+    document.getElementById('overlay').style.display='flex';
+    trainingMode=false;
+  }
 });
 // Apply a fighter selection and refresh the menu UI to reflect it.
 function setP1Choice(name){
@@ -1879,6 +2027,7 @@ document.getElementById('startBtn').addEventListener('click',()=>{
   document.getElementById('tb').textContent='99';document.getElementById('tb').style.color='#fff';
   document.getElementById('status').textContent='';
   document.getElementById('overlay').style.display='none';
+  initAC();startMusicDrone();
   if(!loopStarted){loopStarted=true;tick();}
 });
 // countdown frame update wired into drawFrame via phase check
